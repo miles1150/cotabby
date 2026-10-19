@@ -1,0 +1,175 @@
+# Fork release: builds the "Cotabby Dev" app (this fork's personal build with Explain & Translate),
+# signs it with the fork's own self-signed identity, packages a DMG, and publishes it on this
+# repository's Releases page.
+#
+# Why a separate workflow instead of release.yml: release.yml is upstream's production pipeline
+# (Developer ID signing, notarization, Sparkle appcast) and needs upstream's secrets. This fork has
+# none of those, so it ships the isolated "Cotabby Dev" target (bundle id com.jacobfu.tabby.dev,
+# Sparkle disabled) that can sit next to the official app without touching its updates.
+#
+# Trigger: push a tag like `dev-v0.2.0`. The `dev-` prefix never matches release.yml's
+# `v1.2.3` tag filter, so upstream's pipeline is never started by mistake.
+#
+# Signing: the identity comes from two repository secrets (FORK_SIGNING_CERT_P12, base64 of a
+# .p12, and FORK_SIGNING_CERT_PASSWORD). Using the same certificate for every release keeps the
+# app's code identity stable, so macOS keeps its Accessibility / Input Monitoring grants across
+# updates. It is self-signed (no Apple Developer ID), so the app is not notarized: on first open
+# macOS asks the user to allow it in System Settings → Privacy & Security.
+
+name: Fork Release (Cotabby Dev)
+
+on:
+  push:
+    tags:
+      - "dev-v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fork-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build, sign, package, publish
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      APP_NAME: Cotabby Dev
+      SIGNING_IDENTITY: Cotabby Fork Signing
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: latest-stable
+
+      - name: Release metadata
+        id: meta
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#dev-v}"
+          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "Tag ${tag} must look like dev-v1.2.3 or dev-v1.2.3-beta.1" >&2
+            exit 1
+          fi
+          {
+            echo "tag=${tag}"
+            echo "version=${version}"
+            echo "dmg=Cotabby-Dev-${version}.dmg"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Prepare matching inference dependency
+        run: scripts/prepare_cotabby_workspace.sh
+
+      - name: Toolchain info
+        run: |
+          xcodebuild -version
+          swift --version
+
+      # Unsigned build first; signing happens afterwards with the fork identity, exactly like the
+      # local scripts/build_and_run.sh flow, so CI and local builds produce the same identity.
+      - name: Build Cotabby Dev (Release)
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -workspace build/cotabby-dependencies/Cotabby.xcworkspace \
+            -scheme "${APP_NAME}" \
+            -configuration Release \
+            -destination 'platform=macOS' \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            MARKETING_VERSION="${{ steps.meta.outputs.version }}" \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            build
+
+      # A throwaway keychain that exists only for this job. Its password is random and never
+      # leaves the runner; the keychain is deleted in the last step even if the job fails.
+      - name: Import signing identity
+        env:
+          CERT_P12: ${{ secrets.FORK_SIGNING_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.FORK_SIGNING_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${CERT_P12}" || -z "${CERT_PASSWORD}" ]]; then
+            echo "Missing FORK_SIGNING_CERT_P12 / FORK_SIGNING_CERT_PASSWORD secrets." >&2
+            exit 1
+          fi
+          keychain="${RUNNER_TEMP}/fork-signing.keychain-db"
+          keychain_password="$(openssl rand -hex 24)"
+          echo "${CERT_P12}" | base64 --decode > "${RUNNER_TEMP}/fork-signing.p12"
+          security create-keychain -p "${keychain_password}" "${keychain}"
+          security set-keychain-settings -lut 3600 "${keychain}"
+          security unlock-keychain -p "${keychain_password}" "${keychain}"
+          security import "${RUNNER_TEMP}/fork-signing.p12" -k "${keychain}" -f pkcs12 \
+            -P "${CERT_PASSWORD}" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "${keychain_password}" "${keychain}" >/dev/null
+          # Prepend our keychain to the search list while keeping the runner's existing ones.
+          existing=()
+          while IFS= read -r line; do existing+=("$(echo "${line}" | tr -d '" ')"); done \
+            < <(security list-keychains -d user)
+          security list-keychains -d user -s "${keychain}" "${existing[@]}"
+          rm -f "${RUNNER_TEMP}/fork-signing.p12"
+          # Self-signed identities are not "valid" for policy checks, so list without -v.
+          security find-identity -p codesigning "${keychain}"
+
+      - name: Sign app
+        run: |
+          set -euo pipefail
+          app="build/DerivedData/Build/Products/Release/${APP_NAME}.app"
+          python3 scripts/sign_local_app.py "${app}" --identity "${SIGNING_IDENTITY}" --self-signed
+          codesign -d -r- "${app}"
+
+      - name: Build DMG
+        run: |
+          set -euo pipefail
+          python3 -m venv "${RUNNER_TEMP}/dmg-venv"
+          "${RUNNER_TEMP}/dmg-venv/bin/python3" -m pip install --quiet "dmgbuild[badge_icons]==1.6.7"
+          app="build/DerivedData/Build/Products/Release/${APP_NAME}.app"
+          dmg="build/${{ steps.meta.outputs.dmg }}"
+          "${RUNNER_TEMP}/dmg-venv/bin/python3" scripts/build_release_dmg.py \
+            --app-path "${app}" \
+            --output-path "${dmg}" \
+            --background-path "assets/release/dmg_background.png" \
+            --background-2x-path "assets/release/dmg_background@2x.png" \
+            --volume-name "Cotabby Dev"
+          codesign --force --sign "${SIGNING_IDENTITY}" "${dmg}"
+          shasum -a 256 "${dmg}" | tee "${dmg}.sha256"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          dmg="build/${{ steps.meta.outputs.dmg }}"
+          sha="$(cut -d' ' -f1 "${dmg}.sha256")"
+          cat > "${RUNNER_TEMP}/notes.md" <<EOF
+          Personal build of **Cotabby Dev** from \`${GITHUB_SHA::7}\`, with Explain & Translate
+          (⌥E explains the selected text in simple English with a Chinese translation, ⌥S reads it aloud).
+
+          ### Install
+          1. Download \`${{ steps.meta.outputs.dmg }}\`, open it, and drag **Cotabby Dev** into Applications.
+          2. Quit the official Cotabby if it is running. Two copies would both show suggestions.
+          3. Open Cotabby Dev. macOS blocks it the first time because it is not notarized:
+             open **System Settings → Privacy & Security**, scroll down, and click **Open Anyway**.
+          4. Grant **Accessibility** and **Input Monitoring** when asked. Screen Recording is not needed.
+          5. In Settings → Engine & Model paste your DeepSeek API key (or in Settings → Explain & Translate).
+
+          Updates are signed with the same certificate, so permissions stay granted after you update.
+
+          SHA-256: \`${sha}\`
+          EOF
+          gh release create "${{ steps.meta.outputs.tag }}" "${dmg}" "${dmg}.sha256" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "Cotabby Dev ${{ steps.meta.outputs.version }}" \
+            --notes-file "${RUNNER_TEMP}/notes.md" \
+            --verify-tag
+
+      - name: Clean up keychain and build cache
+        if: always()
+        run: |
+          security delete-keychain "${RUNNER_TEMP}/fork-signing.keychain-db" 2>/dev/null || true
+          rm -rf build/DerivedData
