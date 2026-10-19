@@ -44,6 +44,9 @@ final class BrowserAppDetectorTests: XCTestCase {
         // editor's web-AX tree stays dormant and no focused field ever resolves.
         XCTAssertTrue(BrowserAppDetector.isElectronEditor(bundleIdentifier: "md.obsidian"))
         XCTAssertTrue(BrowserAppDetector.isElectronEditor(bundleIdentifier: "MD.Obsidian"))
+        // Claude desktop: without priming its composer reports "No focused Accessibility element".
+        XCTAssertTrue(BrowserAppDetector.isElectronEditor(bundleIdentifier: "com.anthropic.claudefordesktop"))
+        XCTAssertTrue(BrowserAppDetector.needsWebAccessibilityPriming(bundleIdentifier: "com.anthropic.claudefordesktop"))
         // Electron, but not a text-editing surface we cover: must stay out of the priming allowlist.
         XCTAssertFalse(BrowserAppDetector.isElectronEditor(bundleIdentifier: "com.hnc.Discord"))
         XCTAssertFalse(BrowserAppDetector.isElectronEditor(bundleIdentifier: nil))

@@ -58,6 +58,10 @@ nonisolated enum BrowserAppDetector {
     /// (`com.todesktop.<hash>`) that change between builds, so there is no stable id to allowlist
     /// here without a broad `com.todesktop.` prefix that would also prime unrelated ToDesktop apps.
     private static let electronEditorBundleIdentifiers: Set<String> = [
+        // Claude desktop (Electron). Its message composer is a contenteditable that only appears in
+        // the AX tree once primed; unprimed, every focus poll reported "No focused Accessibility
+        // element" in the composer even though the app is otherwise fully supported (2026-10-19).
+        "com.anthropic.claudefordesktop",
         "com.clickup.desktop-app",
         // The Chromium-based ChatGPT/Codex desktop build identifies as com.openai.codex.
         // Match its bundle identity, not its display name, so focus recovery can reach its composer.
