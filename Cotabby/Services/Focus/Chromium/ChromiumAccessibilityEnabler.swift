@@ -27,6 +27,32 @@ final class ChromiumAccessibilityEnabler {
     /// not advertise it). Recorded so we stop retrying a doomed call every tick.
     private var unsupportedPIDs: Set<pid_t> = []
 
+    /// Recognizes Electron apps that are not on the named allowlist (see `primeAfterFocusFailure`).
+    private let electronDetector: ElectronBundleDetector
+    private let defaults: UserDefaults
+    /// Reads seconds since the last key-down anywhere in the session. Injectable for tests; the
+    /// default asks the window server, which needs no extra permission.
+    private let secondsSinceLastKeyDown: () -> Double
+
+    init(
+        // Optional rather than a default value: default arguments are evaluated outside the main
+        // actor, so the main-actor detector is created inside the (main-actor) initializer instead.
+        electronDetector: ElectronBundleDetector? = nil,
+        defaults: UserDefaults = .standard,
+        secondsSinceLastKeyDown: @escaping () -> Double = {
+            CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .keyDown)
+        }
+    ) {
+        self.electronDetector = electronDetector ?? ElectronBundleDetector()
+        self.defaults = defaults
+        self.secondsSinceLastKeyDown = secondsSinceLastKeyDown
+    }
+
+    // Xcode 26.0–26.3 can miscompile the implicit isolated deinitializer of a main-actor class that
+    // stores closures, freeing memory twice ("pointer being freed was not allocated"). An explicit
+    // nonisolated deinit avoids it, the same workaround `SuggestionSettingsModel` uses.
+    nonisolated deinit {}
+
     /// The frontmost PID seen on the previous poll tick, used to detect activation edges. Updated on
     /// every call (including for apps we never prime) so a switch away and back is always an edge.
     private var lastFrontmostPID: pid_t?
@@ -101,6 +127,49 @@ final class ChromiumAccessibilityEnabler {
         default:
             // Transient (app still launching, busy): leave it unmarked so the next tick retries.
             break
+        }
+    }
+
+    /// Automatic wake for Electron apps that are not on the named allowlist. Called by the focus
+    /// poll only when the frontmost app reported **no focused accessibility element** — the dormant
+    /// web-tree symptom. `ElectronAutoWakePolicy` additionally requires that the user pressed a key
+    /// in the last few seconds, so an Electron app the user is only reading is never woken.
+    ///
+    /// Shares `primedPIDs` / `unsupportedPIDs` with `primeIfNeeded`, so each process is woken at
+    /// most once and an app that rejects the attribute is never asked again.
+    /// Returns true when it woke the app (the next poll tick should then find the focused field).
+    @discardableResult
+    func primeAfterFocusFailure(application: NSRunningApplication) -> Bool {
+        let pid = application.processIdentifier
+        guard pid > 0 else { return false }
+        let facts = ElectronAutoWakePolicy.Facts(
+            bundleIdentifier: application.bundleIdentifier,
+            isElectron: electronDetector.isElectron(bundleURL: application.bundleURL),
+            isOnNamedAllowlist: BrowserAppDetector.needsWebAccessibilityPriming(
+                bundleIdentifier: application.bundleIdentifier),
+            isAlreadyHandled: primedPIDs.contains(pid) || unsupportedPIDs.contains(pid),
+            secondsSinceLastKeyDown: secondsSinceLastKeyDown(),
+            isAutoWakeDisabled: defaults.bool(forKey: ElectronAutoWakePolicy.disabledDefaultsKey),
+            excludedBundleIdentifiers: Set(
+                defaults.stringArray(forKey: ElectronAutoWakePolicy.excludedBundleIDsDefaultsKey) ?? [])
+        )
+        guard ElectronAutoWakePolicy.shouldWake(facts) else { return false }
+
+        switch AXHelper.setManualAccessibility(true, forApplicationPID: pid) {
+        case .success:
+            primedPIDs.insert(pid)
+            let name = application.localizedName ?? "?"
+            let bundle = application.bundleIdentifier ?? "?"
+            CotabbyLogger.focus.info("ELECTRON-AUTOWAKE enabled web accessibility for \(name) (\(bundle))")
+            return true
+        case .attributeUnsupported:
+            unsupportedPIDs.insert(pid)
+            CotabbyLogger.focus.info(
+                "ELECTRON-AUTOWAKE unsupported by \(application.localizedName ?? "?"); not retrying")
+            return false
+        default:
+            // Transient (app busy or launching): the next failed tick retries.
+            return false
         }
     }
 

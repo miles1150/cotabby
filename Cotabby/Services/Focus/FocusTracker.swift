@@ -262,6 +262,21 @@ final class FocusTracker {
         return (appFocused, frontmost)
     }
 
+    /// The "no focused accessibility element" result. That state is also the dormant-Electron
+    /// symptom, so if the user is typing into an unlisted Electron app its web-AX tree is woken here
+    /// and the next poll tick resolves the field (see `ChromiumAccessibilityEnabler.primeAfterFocusFailure`).
+    private func noFocusedElementCapture() -> FocusCaptureResult {
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        if let frontmost {
+            chromiumAccessibilityEnabler.primeAfterFocusFailure(application: frontmost)
+        }
+        return inactiveCapture(
+            applicationName: frontmost?.localizedName ?? "No active application",
+            bundleIdentifier: frontmost?.bundleIdentifier,
+            capability: .unsupported("No focused Accessibility element.")
+        )
+    }
+
     /// Captures the current frontmost application's focused element and reduces it into a snapshot.
     private func captureSnapshot() -> FocusCaptureResult {
         guard permissionProvider() else {
@@ -295,12 +310,7 @@ final class FocusTracker {
             focusedElement = fallback.element
             preresolvedApplication = fallback.application
         } else {
-            let frontmost = NSWorkspace.shared.frontmostApplication
-            return inactiveCapture(
-                applicationName: frontmost?.localizedName ?? "No active application",
-                bundleIdentifier: frontmost?.bundleIdentifier,
-                capability: .unsupported("No focused Accessibility element.")
-            )
+            return noFocusedElementCapture()
         }
 
         // Identity must come from the app that owns the focused element, not from
