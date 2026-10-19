@@ -26,6 +26,8 @@ final class SettingsCoordinator: NSObject, NSWindowDelegate {
     private let onShowWelcome: () -> Void
     private let clearEmojiHistory: () -> Void
     private let typingHistoryStore: TypingHistoryStore
+    /// Optional so existing call sites (tests, previews) keep compiling; the app always passes it.
+    private let explainPane: ExplainPaneDependencies?
 
     private var settingsWindowController: NSWindowController?
 
@@ -51,7 +53,8 @@ final class SettingsCoordinator: NSObject, NSWindowDelegate {
         systemMetricsStore: SystemMetricsStore,
         onShowWelcome: @escaping () -> Void,
         clearEmojiHistory: @escaping () -> Void,
-        typingHistoryStore: TypingHistoryStore
+        typingHistoryStore: TypingHistoryStore,
+        explainPane: ExplainPaneDependencies? = nil
     ) {
         self.appUpdateManager = appUpdateManager
         self.permissionManager = permissionManager
@@ -68,6 +71,7 @@ final class SettingsCoordinator: NSObject, NSWindowDelegate {
         self.onShowWelcome = onShowWelcome
         self.clearEmojiHistory = clearEmojiHistory
         self.typingHistoryStore = typingHistoryStore
+        self.explainPane = explainPane
     }
 
     /// Shows the settings window, reusing the existing instance if it is already open.
@@ -98,6 +102,7 @@ final class SettingsCoordinator: NSObject, NSWindowDelegate {
                     onShowWelcome: onShowWelcome,
                     clearEmojiHistory: clearEmojiHistory,
                     typingHistoryStore: typingHistoryStore,
+                    explainPane: explainPane,
                     onQuit: { NSApplication.shared.terminate(nil) }
                 )
             )

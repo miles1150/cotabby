@@ -30,6 +30,8 @@ struct SettingsContainerView: View {
     let clearEmojiHistory: () -> Void
     /// Owned by `CotabbyAppEnvironment`; the Context pane observes it for the Typing History section.
     let typingHistoryStore: TypingHistoryStore
+    /// Explain & Translate pane inputs; `nil` only in tests and previews.
+    var explainPane: ExplainPaneDependencies?
     let onQuit: () -> Void
 
     @AppStorage("cotabbySettingsSelectedCategoryV2")
@@ -133,6 +135,16 @@ struct SettingsContainerView: View {
                 suggestionSettings: suggestionSettings,
                 clearEmojiHistory: clearEmojiHistory
             )
+        case .explain:
+            if let explainPane {
+                ExplainPaneView(
+                    settings: explainPane.settings,
+                    activeKeySource: explainPane.activeKeySource,
+                    previewVoice: explainPane.previewVoice
+                )
+            } else {
+                Text("Explain & Translate is not available in this build.")
+            }
         case .engineAndModel:
             EngineAndModelPaneView(
                 suggestionSettings: suggestionSettings,

@@ -35,6 +35,11 @@ final class CotabbyAppEnvironment {
     let emojiPickerController: EmojiPickerController
     let macroController: MacroController
     let inlineCommandCoordinator: InlineCommandCoordinator
+    /// Explain & Translate: shortcut → selected text → DeepSeek explanation panel / read aloud.
+    let explainCoordinator: ExplainCoordinator
+    let explainSettings: ExplainSettingsModel
+    /// App-lifetime speech engine; `AVSpeechSynthesizer` stops talking if it is released.
+    let speechService: SpeechService
     let emojiUsageStore: EmojiUsageStore
     let welcomeCoordinator: WelcomeCoordinator
     let huggingFaceSearchService: HuggingFaceSearchService
@@ -243,6 +248,16 @@ final class CotabbyAppEnvironment {
         // "Clear History" control can reach it, and before the picker which reads and writes it.
         let emojiUsageStore = EmojiUsageStore()
 
+        let explainFeature = Self.makeExplainFeature(
+            suppressionController: suppressionController,
+            endpointCredentialStore: endpointCredentialStore,
+            suggestionSettings: suggestionSettings
+        )
+        let explainSettings = explainFeature.settings
+        let speechService = explainFeature.speech
+        let explainCoordinator = explainFeature.coordinator
+        let explainPane = explainFeature.pane
+
         let settingsCoordinator = SettingsCoordinator(
             appUpdateManager: appUpdateManager,
             permissionManager: permissionManager,
@@ -260,7 +275,8 @@ final class CotabbyAppEnvironment {
                 welcomeCoordinator?.showWelcome()
             },
             clearEmojiHistory: { emojiUsageStore.clear() },
-            typingHistoryStore: typingHistoryStore
+            typingHistoryStore: typingHistoryStore,
+            explainPane: explainPane
         )
 
         let interactionState = SuggestionInteractionState()
@@ -361,6 +377,9 @@ final class CotabbyAppEnvironment {
         self.emojiPickerController = emojiPickerController
         self.macroController = macroController
         self.inlineCommandCoordinator = inlineCommandCoordinator
+        self.explainCoordinator = explainCoordinator
+        self.explainSettings = explainSettings
+        self.speechService = speechService
         self.emojiUsageStore = emojiUsageStore
         self.welcomeCoordinator = welcomeCoordinator
         self.huggingFaceSearchService = huggingFaceSearchService
@@ -422,6 +441,44 @@ final class CotabbyAppEnvironment {
 
         observePowerSourceProfileSwitching()
         observeOpenAICompatibleSelection()
+    }
+
+    /// The Explain & Translate object graph, built in one place and kept out of `init` so the
+    /// initializer stays readable. It is a sibling feature: it shares the synthetic-event marker (so
+    /// its fallback Cmd-C is ignored by Cotabby's own taps) and reads the autocomplete endpoint's key
+    /// only to reuse it when that endpoint is DeepSeek. Its own key lives in a separate Keychain item.
+    private static func makeExplainFeature(
+        suppressionController: InputSuppressionController,
+        endpointCredentialStore: OpenAICompatibleCredentialStoring,
+        suggestionSettings: SuggestionSettingsModel
+    ) -> ExplainFeatureGraph {
+        let settings = ExplainSettingsModel(
+            credentialStore: KeychainOpenAICompatibleCredentialStore(serviceSuffix: "explain-deepseek")
+        )
+        let speech = SpeechService()
+        let coordinator = ExplainCoordinator(
+            settings: settings,
+            hotKeys: GlobalHotKeyCenter(),
+            reader: SelectedTextReader(suppressionController: suppressionController),
+            client: DeepSeekExplainClient(),
+            panel: ExplainPanelController(),
+            speech: speech,
+            endpointAPIKey: { try? endpointCredentialStore.readAPIKey() },
+            endpointBaseURL: { suggestionSettings.openAICompatibleBaseURL }
+        )
+        let pane = ExplainPaneDependencies(
+            settings: settings,
+            activeKeySource: { [weak coordinator] in coordinator?.activeKeySource },
+            previewVoice: { [weak speech, weak settings] in
+                guard let speech, let settings else { return }
+                speech.speak(
+                    "Hello! This is how I will read the text you select.",
+                    preferredVoiceIdentifier: settings.voiceIdentifier,
+                    rate: settings.speechRate
+                )
+            }
+        )
+        return ExplainFeatureGraph(settings: settings, speech: speech, coordinator: coordinator, pane: pane)
     }
 
     /// Applies the user's per-power-source profile (engine + model) whenever anything that could
@@ -544,4 +601,13 @@ final class CotabbyAppEnvironment {
 
 private extension String {
     var nonEmpty: String? { isEmpty ? nil : self }
+}
+
+/// The four long-lived Explain & Translate objects `makeExplainFeature` builds, named instead of
+/// returned as a tuple so each part reads clearly at the call site.
+private struct ExplainFeatureGraph {
+    let settings: ExplainSettingsModel
+    let speech: SpeechService
+    let coordinator: ExplainCoordinator
+    let pane: ExplainPaneDependencies
 }

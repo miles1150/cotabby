@@ -46,6 +46,10 @@ enum SettingsItem: String, CaseIterable, Identifiable {
     case emojiSkinTone
     case emojiPeopleStyle
     case emojiHistory
+    case explainTranslate
+    case explainShortcuts
+    case explainAPIKey
+    case explainVoice
     // Writing
     case length
     case acceptPunctuation
@@ -144,6 +148,10 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .emojiSkinTone: return "Skin Tone"
         case .emojiPeopleStyle: return "People Emoji Style"
         case .emojiHistory: return "Emoji History"
+        case .explainTranslate: return "Explain & Translate"
+        case .explainShortcuts: return "Explain Shortcuts"
+        case .explainAPIKey: return "DeepSeek API Key"
+        case .explainVoice: return "Read Aloud Voice"
         case .length: return "Length"
         case .name: return "Name"
         case .languages: return "Languages"
@@ -232,6 +240,10 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .emojiSkinTone: return "hand.raised.fingers.spread"
         case .emojiPeopleStyle: return "person.2"
         case .emojiHistory: return "clock.arrow.circlepath"
+        case .explainTranslate: return "character.book.closed"
+        case .explainShortcuts: return "keyboard"
+        case .explainAPIKey: return "key"
+        case .explainVoice: return "speaker.wave.2"
         case .length: return "ruler"
         case .name: return "person"
         case .languages: return "globe"
@@ -300,6 +312,8 @@ enum SettingsItem: String, CaseIterable, Identifiable {
             return .appearance
         case .emojiPicker, .emojiSkinTone, .emojiPeopleStyle, .emojiHistory:
             return .emoji
+        case .explainTranslate, .explainShortcuts, .explainAPIKey, .explainVoice:
+            return .explain
         case .length, .acceptPunctuation, .addSpaceAfterAccept, .name, .languages, .customRules,
              .hideSuggestionsOnTypo, .offerTypoCorrections, .spellingDictionaries, .automaticallyFixTypos:
             return .writing
@@ -364,6 +378,10 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .emojiSkinTone: return "Prefer a skin tone in emoji suggestions."
         case .emojiPeopleStyle: return "Person, man, or woman variants when available."
         case .emojiHistory: return "Clear recently and frequently used emoji."
+        case .explainTranslate: return "Explain selected text in simple English with a Chinese translation."
+        case .explainShortcuts: return "Keys that explain or read aloud the selected text."
+        case .explainAPIKey: return "The DeepSeek key used to explain and translate."
+        case .explainVoice: return "The voice and speed used to read text aloud."
         case .length: return "How many words Cotabby aims for per suggestion."
         case .name: return "What Cotabby should call you."
         case .languages: return "Languages suggestions should be written in."
@@ -518,6 +536,15 @@ enum SettingsItem: String, CaseIterable, Identifiable {
         case .emojiHistory:
             return ["history", "recent", "clear", "reset", "recents", "clear history",
                     "emoji history", "frequently used"]
+        case .explainTranslate:
+            return ["explain", "translate", "translation", "chinese", "中文", "dictionary", "meaning",
+                    "learn english", "define", "definition"]
+        case .explainShortcuts:
+            return ["explain shortcut", "speak shortcut", "hotkey", "option e", "option s", "keybind"]
+        case .explainAPIKey:
+            return ["deepseek", "api key", "token", "key", "explain key"]
+        case .explainVoice:
+            return ["voice", "speak", "read aloud", "speech", "pronunciation", "tts", "text to speech", "rate", "speed"]
         case .length:
             return ["length", "words", "short", "long", "count", "verbose", "brief",
                     "tokens", "size", "concise", "min", "max", "range", "custom"]

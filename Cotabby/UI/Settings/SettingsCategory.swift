@@ -15,6 +15,7 @@ enum SettingsCategory: String, CaseIterable, Hashable, Identifiable {
     case general
     case appearance
     case emoji
+    case explain
     case writing
     case context
     case engineAndModel
@@ -32,6 +33,7 @@ enum SettingsCategory: String, CaseIterable, Hashable, Identifiable {
         case .general: return "General"
         case .appearance: return "Appearance"
         case .emoji: return "Emoji"
+        case .explain: return "Explain & Translate"
         case .writing: return "Writing"
         case .context: return "Context"
         case .engineAndModel: return "Engine & Model"
@@ -50,6 +52,7 @@ enum SettingsCategory: String, CaseIterable, Hashable, Identifiable {
         case .general: return "gearshape.fill"
         case .appearance: return "paintbrush.fill"
         case .emoji: return "face.smiling"
+        case .explain: return "character.book.closed.fill"
         case .writing: return "square.and.pencil"
         case .context: return "doc.text"
         case .engineAndModel: return "cpu.fill"
@@ -70,6 +73,7 @@ enum SettingsCategory: String, CaseIterable, Hashable, Identifiable {
         case .general: return .gray
         case .appearance: return .purple
         case .emoji: return .yellow
+        case .explain: return .mint
         case .writing: return .indigo
         case .context: return .teal
         case .engineAndModel: return .orange
@@ -88,6 +92,7 @@ enum SettingsCategory: String, CaseIterable, Hashable, Identifiable {
         case .general: return "Core toggles and behavior"
         case .appearance: return "Ghost text style and display"
         case .emoji: return "The inline emoji picker"
+        case .explain: return "Explain, translate, and read aloud"
         case .writing: return "Length, profile, and corrections"
         case .context: return "What the model can reference"
         case .engineAndModel: return "Choose the engine and models"
@@ -105,7 +110,7 @@ enum SettingsCategory: String, CaseIterable, Hashable, Identifiable {
     /// pins that invariant so a new pane cannot silently vanish from the sidebar.
     static let sidebarGroups: [[SettingsCategory]] = [
         [.home],
-        [.general, .appearance, .emoji],
+        [.general, .appearance, .emoji, .explain],
         [.writing, .context, .engineAndModel],
         [.shortcuts, .apps, .permissions],
         [.performance, .about]

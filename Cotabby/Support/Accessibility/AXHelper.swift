@@ -1116,6 +1116,20 @@ enum AXHelper {
     /// host runs its paste command without any key event existing, so an active input method can
     /// neither swallow nor re-interpret the commit the way it does a synthetic keystroke.
     static func pasteMenuItem(forApplicationPID pid: pid_t) -> AXUIElement? {
+        commandMenuItem(forApplicationPID: pid, keyEquivalent: "V")
+    }
+
+    /// Locates the app's "Copy" menu item by its Cmd-C key equivalent. Explain & Translate presses it
+    /// to copy a selection that Accessibility cannot read directly (read-only web views, Electron
+    /// chat transcripts). Pressing the menu item avoids a synthetic Cmd-C, which would merge with
+    /// the Option key the user is still holding from the hotkey and arrive as Option-Cmd-C.
+    static func copyMenuItem(forApplicationPID pid: pid_t) -> AXUIElement? {
+        commandMenuItem(forApplicationPID: pid, keyEquivalent: "C")
+    }
+
+    /// Shared walk behind `pasteMenuItem` and `copyMenuItem`: finds the first top-level menu item
+    /// whose key equivalent is exactly Command plus `keyEquivalent`.
+    private static func commandMenuItem(forApplicationPID pid: pid_t, keyEquivalent: String) -> AXUIElement? {
         guard pid > 0 else { return nil }
         let appElement = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(appElement, pollMessagingTimeout)
@@ -1128,7 +1142,7 @@ enum AXHelper {
 
         // Menu bar -> top-level items (Apple, app, File, Edit, ...) -> one AXMenu each -> menu items.
         // Depth-1 only: Paste always lives directly in a top-level menu, and skipping submenu
-        // recursion keeps the walk bounded. Early exit on the first Cmd-V item.
+        // recursion keeps the walk bounded. Early exit on the first matching Cmd item.
         //
         // Every walked element gets the short poll timeout before it is messaged: the walk runs on
         // the main actor inside the accept path, and an element handle that never had a timeout set
@@ -1139,7 +1153,7 @@ enum AXHelper {
             AXUIElementSetMessagingTimeout(topLevelItem, pollMessagingTimeout)
             for menu in childElements(of: topLevelItem) {
                 AXUIElementSetMessagingTimeout(menu, pollMessagingTimeout)
-                for item in childElements(of: menu) where isCommandVMenuItem(item) {
+                for item in childElements(of: menu) where isCommandMenuItem(item, keyEquivalent: keyEquivalent) {
                     return item
                 }
             }
@@ -1147,14 +1161,15 @@ enum AXHelper {
         return nil
     }
 
-    /// True for a menu item whose key equivalent is exactly Cmd-V. `kAXMenuItemCmdModifiers` uses the
-    /// Carbon menu encoding where 0 means "Command alone"; shift/option/control add bits and 8 means
-    /// the equivalent carries no Command at all, so only an exact 0 matches plain Cmd-V. A missing
-    /// modifiers attribute rejects the item explicitly rather than relying on `nil == 0` being false.
-    private static func isCommandVMenuItem(_ item: AXUIElement) -> Bool {
+    /// True for a menu item whose key equivalent is exactly Cmd plus `keyEquivalent`.
+    /// `kAXMenuItemCmdModifiers` uses the Carbon menu encoding where 0 means "Command alone";
+    /// shift/option/control add bits and 8 means the equivalent carries no Command at all, so only an
+    /// exact 0 matches. A missing modifiers attribute rejects the item explicitly rather than relying
+    /// on `nil == 0` being false.
+    private static func isCommandMenuItem(_ item: AXUIElement, keyEquivalent: String) -> Bool {
         AXUIElementSetMessagingTimeout(item, pollMessagingTimeout)
         guard let cmdChar = stringValue(for: kAXMenuItemCmdCharAttribute as CFString, on: item),
-              cmdChar.uppercased() == "V" else {
+              cmdChar.uppercased() == keyEquivalent else {
             return false
         }
         guard let modifiers = intValue(for: kAXMenuItemCmdModifiersAttribute as CFString, on: item) else {
