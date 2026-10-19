@@ -67,6 +67,8 @@ xcodebuild \
 BUNDLE_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$BUILT_APP/Contents/Info.plist")
 local_signing_args=(--identity "$SIGNING_IDENTITY")
 if [[ "$CONFIGURATION" == Debug ]]; then local_signing_args+=(--debug); fi
+# Set COTABBY_SELF_SIGNED=1 when COTABBY_SIGNING_IDENTITY is a self-signed certificate (no Team ID).
+if [[ -n "${COTABBY_SELF_SIGNED:-}" ]]; then local_signing_args+=(--self-signed); fi
 python3 "$ROOT_DIR/scripts/sign_local_app.py" "$BUILT_APP" "${local_signing_args[@]}"
 
 mkdir -p "$RUN_DIR"

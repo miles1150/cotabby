@@ -23,6 +23,10 @@ def main():
     parser.add_argument("--identity", required=True)
     parser.add_argument("--testing", action="store_true")
     parser.add_argument("--debug", action="store_true")
+    # A self-signed identity has no Team ID, and hardened-runtime library validation refuses to
+    # load embedded frameworks (Sparkle, llama) whose Team ID does not match the app's. Local
+    # builds signed that way opt out of library validation; Apple Development builds never need it.
+    parser.add_argument("--self-signed", action="store_true")
     args = parser.parse_args()
     original = args.app.resolve()
     if original.suffix != ".app" or not (original / "Contents/Info.plist").is_file():
@@ -52,6 +56,8 @@ def main():
         entitlements = {}
         if args.debug or args.testing:
             entitlements["com.apple.security.get-task-allow"] = True
+        if args.self_signed:
+            entitlements["com.apple.security.cs.disable-library-validation"] = True
         if args.testing:
             # XCTest injects its runner libraries into the host. Only the temporary
             # test build gets this entitlement; production packages never use it.
